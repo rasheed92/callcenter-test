@@ -5,6 +5,9 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -35,9 +38,23 @@ jobs:
       - name: Build debug APK
         run: gradle :app:assembleDebug --no-daemon --stacktrace
 
-      - name: Upload APK
+      - name: Rename APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk callcenter-test.apk
+
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: callrec-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: callcenter-test.apk
           if-no-files-found: error
+
+      - name: Publish APK to Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: أحدث APK — تطبيق الكول سنتر (تجربة)
+          body: |
+            نموذج اختبار تسجيل المكالمات. نزّل callcenter-test.apk وثبّته على الجهاز.
+            انظر README لخطوات تفعيل إمكانية الوصول والصلاحيات.
+          files: callcenter-test.apk
+          make_latest: true
