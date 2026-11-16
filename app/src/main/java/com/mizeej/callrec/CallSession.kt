@@ -35,8 +35,9 @@ object SessionStore {
         active = session
     }
 
-    fun finishActive(filePath: String, answered: Boolean, durationSec: Int) {
-        active?.let {
+    fun finishActive(filePath: String, answered: Boolean, durationSec: Int): CallSession? {
+        val s = active
+        s?.let {
             it.endedAt = System.currentTimeMillis()
             it.filePath = filePath
             it.answered = answered
@@ -44,5 +45,6 @@ object SessionStore {
             finished.add(0, it)
         }
         active = null
+        return s
     }
 }

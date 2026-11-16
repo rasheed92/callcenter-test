@@ -181,7 +181,10 @@ class MainActivity : AppCompatActivity() {
                     @Suppress("DEPRECATION")
                     val state = tm.callState
                     if (state == TelephonyManager.CALL_STATE_OFFHOOK) wasInCall = true
-                    wasInCall && state == TelephonyManager.CALL_STATE_IDLE
+                    // انتهت إذا كنا في مكالمة ثم رجعت الحالة خاملة،
+                    // أو لم يبدأ اتصال خلال ~دقيقة (ألغى الموظف أو لم يتصل)
+                    (wasInCall && state == TelephonyManager.CALL_STATE_IDLE) ||
+                        (!wasInCall && pollCount > 30)
                 }
                 CallSession.Channel.WHATSAPP -> {
                     val am = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
@@ -211,19 +214,20 @@ class MainActivity : AppCompatActivity() {
         }
         startService(stop)
 
-        // امنح الخدمة لحظة لإغلاق الملف ثم اربطه بالطلب
+        // امنح الخدمة لحظة لإغلاق الملف ثم اربطه بالطلب واحفظه بشكل دائم
         handler.postDelayed({
-            SessionStore.finishActive(
+            val finished = SessionStore.finishActive(
                 filePath = RecordingService.lastFilePath,
                 answered = answered,
                 durationSec = duration
             )
+            finished?.let { Store.append(this, it) }
             val msg = if (answered)
                 "تم حفظ التسجيل وربطه بالطلب $demoOrderId (المدة ${duration}ث)"
             else
-                "لم يُردّ الزبون — سُجّلت المحاولة"
+                "انتهت المكالمة — سُجّلت المحاولة"
             Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
-        }, 800)
+        }, 1200)
     }
 
     private fun showSetupStatus() {
@@ -244,6 +248,36 @@ class MainActivity : AppCompatActivity() {
             }
         }
         builder.show()
+    }
+
+    /**
+     * شبكة أمان: إذا رجع الموظف للتطبيق بعد المكالمة وبقيت جلسة نشطة
+     * (مثلاً فُقد المراقب لأن النظام أعاد إنشاء الشاشة)، نتأكد أن الهاتف
+     * لم يعد في مكالمة ونُنهي الجلسة ونوقف التسجيل. بهذا لا يضيع أي تسجيل.
+     */
+    override fun onResume() {
+        super.onResume()
+        val session = SessionStore.active ?: return
+        val am = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+        @Suppress("DEPRECATION")
+        val state = tm.callState
+        @Suppress("DEPRECATION")
+        val inComm = am.mode == android.media.AudioManager.MODE_IN_COMMUNICATION
+        val stillActive = state == TelephonyManager.CALL_STATE_OFFHOOK || inComm
+        if (!stillActive) {
+            // أعطِ لحظة بعد العودة ثم أنهِ إن بقيت خاملة
+            handler.postDelayed({
+                if (SessionStore.active != null) {
+                    val st2 = @Suppress("DEPRECATION") tm.callState
+                    val inComm2 = @Suppress("DEPRECATION")
+                        (am.mode == android.media.AudioManager.MODE_IN_COMMUNICATION)
+                    if (st2 != TelephonyManager.CALL_STATE_OFFHOOK && !inComm2) {
+                        val dur = ((System.currentTimeMillis() - session.startedAt) / 1000).toInt()
+                        stopRecordingNow(answered = wasInCall, duration = if (wasInCall) dur else 0)
+                    }
+                }
+            }, 1500)
+        }
     }
 
     override fun onDestroy() {

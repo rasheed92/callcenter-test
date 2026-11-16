@@ -41,14 +41,35 @@ class RecordingsActivity : AppCompatActivity() {
             setPadding(0, 0, 0, dp(16))
         })
 
-        val sessions = SessionStore.finished
+        val fmt = SimpleDateFormat("HH:mm:ss", Locale.US)
+
+        // 1) الجلسات المحفوظة بشكل دائم
+        val sessions = Store.load(this).toMutableList()
+        val knownPaths = sessions.map { it.filePath }.toHashSet()
+
+        // 2) أي ملفات تسجيل على القرص ليست مرتبطة بجلسة (شبكة أمان إضافية)
+        val dir = File(getExternalFilesDir(null), "recordings")
+        dir.listFiles()?.filter { it.isFile && it.absolutePath !in knownPaths }?.forEach { f ->
+            val orderId = Regex("order_([^_]+)_").find(f.name)?.groupValues?.get(1) ?: "?"
+            sessions.add(CallSession(
+                orderId = orderId,
+                phone = "",
+                channel = CallSession.Channel.SIM,
+                startedAt = f.lastModified()
+            ).apply {
+                filePath = f.absolutePath
+                answered = f.length() > 0
+                durationSec = 0
+            })
+        }
+        sessions.sortByDescending { it.startedAt }
+
         if (sessions.isEmpty()) {
             root.addView(TextView(this).apply {
-                text = "لا توجد تسجيلات بعد."
+                text = "لا توجد تسجيلات بعد.\nاضغط \"اتصال\"، أكمل المكالمة، ثم ارجع هنا."
                 setTextColor(Color.GRAY)
             })
         } else {
-            val fmt = SimpleDateFormat("HH:mm:ss", Locale.US)
             for (s in sessions) {
                 root.addView(buildRow(s, fmt))
             }
